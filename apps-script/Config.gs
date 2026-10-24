@@ -58,10 +58,13 @@ var TX_TYPES = ['PAYMENT PAID','PAYMENT RECV','RECV FROM EMPLOYEE'];
 var PAYMENT_METHODS = ['ONLINE TRANSACTION','CASH'];
 var RECORD_STATUS = { ACTIVE: 'Active', DELETED: 'Deleted' };
 
+var SS_HANDLE_ = null;
 function ss_() {
-  return SPREADSHEET_ID
+  if (SS_HANDLE_) return SS_HANDLE_;
+  SS_HANDLE_ = SPREADSHEET_ID
     ? SpreadsheetApp.openById(SPREADSHEET_ID)
     : SpreadsheetApp.getActiveSpreadsheet();
+  return SS_HANDLE_;
 }
 function sheet_(name) {
   var sh = ss_().getSheetByName(name);

@@ -20,7 +20,7 @@ function sessionTtlSeconds_() {
 }
 
 function findUserByEmail_(email) {
-  var data = readObjects_(SHEETS.USR, USR_COLS);
+  var data = readObjects_(SHEETS.USR, USR_COLS, true);
   email = String(email || '').trim().toLowerCase();
   for (var i = 0; i < data.rows.length; i++) {
     if (String(data.rows[i].Email || '').trim().toLowerCase() === email) return data.rows[i];

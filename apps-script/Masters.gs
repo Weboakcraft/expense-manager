@@ -138,7 +138,7 @@ function findMasterRow_(sheetName, idHeader, id) {
   var cols = sheetName === SHEETS.EMP ? EMP_COLS : sheetName === SHEETS.CAT ? CAT_COLS :
     sheetName === SHEETS.APR ? APR_COLS : sheetName === SHEETS.RCV ? RCV_COLS :
       sheetName === SHEETS.USR ? USR_COLS : [idHeader];
-  var data = readObjects_(sheetName, cols);
+  var data = readObjects_(sheetName, cols, true);
   for (var i = 0; i < data.rows.length; i++) {
     if (String(data.rows[i][idHeader]) === String(id)) return data.rows[i];
   }
@@ -188,6 +188,7 @@ function deleteUser_(principal, userId) {
     var row = findMasterRow_(SHEETS.USR, 'User ID', userId);
     if (!row) return err_('User not found');
     sheet_(SHEETS.USR).deleteRow(row._row);
+    bumpSheetVer_(SHEETS.USR);
     audit_(principal.email, principal.name, 'DELETE', 'user', userId, row['Email'] || '', '', 'web');
     return { ok: true, id: userId };
   });

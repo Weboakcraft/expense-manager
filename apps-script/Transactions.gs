@@ -154,7 +154,7 @@ function createTransaction_(principal, tx, options) {
 }
 
 function findTxRow_(id) {
-  var data = readObjects_(SHEETS.TX, TX_COLS);
+  var data = readObjects_(SHEETS.TX, TX_COLS, true);
   for (var i = 0; i < data.rows.length; i++) {
     if (String(data.rows[i]['Transaction ID']) === String(id)) return data.rows[i];
   }

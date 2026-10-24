@@ -3,8 +3,63 @@
  * Low-level helpers: sheet<->object mapping, locking, ids, dates, hashing.
  */
 
+/* ---------------- speed: sheet read cache ----------------
+ * Every API call used to re-read whole sheets. Now a sheet is read once,
+ * kept in memory for the rest of the request and in CacheService for a few
+ * minutes. Any write through the app (or a manual edit in the sheet, via
+ * onEdit below) bumps that sheet's version so the next read is fresh.
+ * Reads that lead to a write (find row by id, next id, login) pass fresh=true.
+ */
+var MEMO_ = {};
+var ROWS_TTL_SEC_ = 180;
+function sheetVer_(name) {
+  var c = CacheService.getScriptCache(), k = 'ver_' + name, v = c.get(k);
+  if (!v) { v = String(Date.now()); c.put(k, v, 21600); }
+  return v;
+}
+function bumpSheetVer_(name) {
+  delete MEMO_[name];
+  try { CacheService.getScriptCache().put('ver_' + name, String(Date.now()) + Math.random().toString(36).slice(2, 6), 21600); } catch (e) {}
+}
+function cachePutJson_(key, obj, ttl) {
+  try {
+    var s = JSON.stringify(obj), size = 30000, n = Math.ceil(s.length / size);
+    if (n > 200) return;
+    var m = {};
+    for (var i = 0; i < n; i++) m[key + '_' + i] = s.substr(i * size, size);
+    m[key] = String(n);
+    CacheService.getScriptCache().putAll(m, ttl);
+  } catch (e) { /* cache is best-effort */ }
+}
+function cacheGetJson_(key) {
+  try {
+    var c = CacheService.getScriptCache(), n = parseInt(c.get(key), 10);
+    if (!n) return null;
+    var keys = []; for (var i = 0; i < n; i++) keys.push(key + '_' + i);
+    var got = c.getAll(keys), s = '';
+    for (var j = 0; j < n; j++) { if (got[keys[j]] == null) return null; s += got[keys[j]]; }
+    return JSON.parse(s);
+  } catch (e) { return null; }
+}
+/** Simple trigger: a manual edit in the sheet invalidates that sheet's cache. */
+function onEdit(e) {
+  try { bumpSheetVer_(e.range.getSheet().getName()); } catch (x) {}
+}
+
 /** Read a whole sheet into an array of row-objects keyed by header. */
-function readObjects_(sheetName, headerList) {
+function readObjects_(sheetName, headerList, fresh) {
+  if (!fresh && MEMO_[sheetName]) return MEMO_[sheetName];
+  var ckey = 'rows_' + sheetName + '_' + sheetVer_(sheetName);
+  if (!fresh) {
+    var hit = cacheGetJson_(ckey);
+    if (hit) { MEMO_[sheetName] = hit; return hit; }
+  }
+  var result = readSheetObjects_(sheetName, headerList);
+  MEMO_[sheetName] = result;
+  cachePutJson_(ckey, result, ROWS_TTL_SEC_);
+  return result;
+}
+function readSheetObjects_(sheetName, headerList) {
   var sh = sheet_(sheetName);
   var values = sh.getDataRange().getValues();
   if (values.length < 1) return { headers: headerList.slice(), rows: [] };
@@ -49,6 +104,7 @@ function appendObject_(sheetName, obj) {
   var sh = sheet_(sheetName);
   var row = objectToRow_(sheetName, obj);
   sh.appendRow(row);
+  bumpSheetVer_(sheetName);
   return sh.getLastRow();
 }
 
@@ -62,6 +118,7 @@ function updateRow_(sheetName, rowNumber, partial) {
     if (partial.hasOwnProperty(headers[c])) current[c] = partial[headers[c]];
   }
   sh.getRange(rowNumber, 1, 1, headers.length).setValues([current]);
+  bumpSheetVer_(sheetName);
 }
 
 /** Global document lock to serialise writes (prevents double submission). */
@@ -85,7 +142,7 @@ function counterGet_(key) {
 function nextTxId_(expenseDateDMY) {
   var ymd = dmyToYmd_(expenseDateDMY);                 // 20260219
   var prefix = 'EXP-' + ymd + '-';
-  var data = readObjects_(SHEETS.TX, TX_COLS);
+  var data = readObjects_(SHEETS.TX, TX_COLS, true);
   var max = 0;
   for (var i = 0; i < data.rows.length; i++) {
     var id = String(data.rows[i]['Transaction ID'] || '');
@@ -100,7 +157,7 @@ function nextTxId_(expenseDateDMY) {
 
 /** Next sequential id like EMP-001, CAT-001 for a master sheet. */
 function nextMasterId_(sheetName, idHeader, prefix) {
-  var data = readObjects_(sheetName, [idHeader]);
+  var data = readObjects_(sheetName, [idHeader], true);
   var max = 0;
   for (var i = 0; i < data.rows.length; i++) {
     var id = String(data.rows[i][idHeader] || '');
