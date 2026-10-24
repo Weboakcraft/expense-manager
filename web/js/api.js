@@ -82,7 +82,7 @@
       if (diff < -back) return { ok: false, error: "Expense Date is older than the allowed " + back + " backdate days" };
       if (diff > fut) return { ok: false, error: fut === 0 ? "Future-dated entries are not allowed" : "Date is more than " + fut + " day(s) ahead" };
       if (S.MONTH_LOCK_BEFORE) { var lk = dmyToDate(isoToDMY(S.MONTH_LOCK_BEFORE)); if (lk && dmyToDate(ed) <= lk) return { ok: false, error: "This period is locked (" + isoToDMY(S.MONTH_LOCK_BEFORE) + ")" }; }
-      var hasProof = !!String(t.billProof || "").trim();
+      var hasProof = !!String(t.billProof || "").trim() || !!String(t.refProof || "").trim();
       if (method === "ONLINE TRANSACTION" && truthy(S.REQUIRE_PROOF_ONLINE) && !hasProof) return { ok: false, error: "A bill / payment proof is required for ONLINE TRANSACTION entries" };
       var cashAbove = num(S.REQUIRE_PROOF_CASH_ABOVE || 0);
       if (method === "CASH" && cashAbove > 0 && amount >= cashAbove && !hasProof) return { ok: false, error: "A proof is required for cash payments of ₹" + cashAbove + " or more" };

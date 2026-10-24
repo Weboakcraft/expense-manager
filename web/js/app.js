@@ -449,7 +449,9 @@
     if (r.recordStatus === "Deleted") rows.push(["Deleted By", r.deletedBy || "—"], ["Delete Reason", r.deleteReason || "—"]);
     var body = h("div", {});
     rows.forEach(function (p) { body.appendChild(h("div", { class: "row", style: "padding:7px 0;border-bottom:1px solid var(--border);gap:16px" }, [h("div", { class: "muted", style: "width:150px;flex:none;font-size:13px" }, [p[0]]), h("div", { style: "font-weight:550", class: p[0] === "Amount" ? "amt" : "" }, [String(p[1])])])); });
-    if (r.billProof) body.appendChild(h("div", { style: "margin-top:12px" }, [h("div", { class: "muted", style: "font-size:13px;margin-bottom:4px" }, ["Attached proof"]), h("div", { class: "mono", style: "font-size:12px;word-break:break-all;color:var(--primary)" }, [r.billProof])]));
+    [["Bill Amount proof", r.billProof], ["Payment Amount proof", r.refProof]].forEach(function (pp) {
+      if (pp[1]) body.appendChild(h("div", { style: "margin-top:12px" }, [h("div", { class: "muted", style: "font-size:13px;margin-bottom:4px" }, [pp[0]]), h("div", { class: "mono", style: "font-size:12px;word-break:break-all;color:var(--primary)" }, [pp[1]])]));
+    });
     var foot = [];
     if (can("edit") && r.recordStatus !== "Deleted") foot.push(h("button", { class: "btn primary", html: icon("edit") + " Edit", onclick: function () { mo.close(); openTxForm(r); } }));
     foot.push(h("button", { class: "btn ghost", onclick: function () { mo.close(); } }, ["Close"]));
@@ -477,19 +479,33 @@
     f.date = h("input", { class: "input", type: "date", value: existing ? (FMT.isoToDMY(existing.expenseDate).split("/").reverse().join("-")) : today });
     f.category = selectFrom((b.categories || []).map(function (c) { return c.name; }), existing ? existing.category : "");
     f.customer = h("input", { class: "input", placeholder: "Customer name", value: existing ? existing.customer || "" : "" });
-    f.employee = inputList((b.employees || []).map(function (e) { return e.name; }), existing ? existing.employee || "" : "", "Employee / payee");
+    f.employee = h("input", { class: "input", placeholder: "Employee / payee name", value: existing ? existing.employee || "" : "", autocomplete: "off" });
     f.recvBy = selectFrom([""].concat((b.receivers || []).map(function (r) { return r.name; })), existing ? existing.recvBy || "" : "", "Select receiver");
     f.method = selectFrom(b.paymentMethods, existing ? existing.method : "ONLINE TRANSACTION");
     f.amount = h("input", { class: "input", type: "number", step: "0.01", min: "0", placeholder: "0.00", value: existing ? existing.amount : "" });
     f.approvedBy = selectFrom([""].concat((b.approvers || []).map(function (a) { return a.name; })), existing ? existing.approvedBy || "" : "", "Approved by");
     f.purpose = h("textarea", { class: "input", rows: "2", placeholder: "What is this for?" }); f.purpose.value = existing ? existing.purpose || "" : "";
-    f.proof = h("input", { class: "input", type: "file", accept: "image/*" });
-    f.proofPath = h("input", { class: "input", placeholder: "or paste a proof link/path", value: existing ? existing.billProof || "" : "" });
+    f.billProof = h("input", { class: "input", type: "file", accept: "image/*" });
+    f.payProof = h("input", { class: "input", type: "file", accept: "image/*" });
+    // 1. automatic, read-only timestamp (server stamps the real value on save)
+    f.timestamp = h("input", { class: "input", type: "text", readonly: "readonly", tabindex: "-1", style: "background:var(--bg-2,#f1efea);cursor:not-allowed" });
+    function nowStamp() { var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; }; return p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear() + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()); }
+    if (existing) f.timestamp.value = existing.timestamp || "";
+    else {
+      f.timestamp.value = nowStamp();
+      var tsShown = false, tsTimer = setInterval(function () {
+        if (f.timestamp.isConnected) tsShown = true;
+        else if (tsShown) { clearInterval(tsTimer); return; } // form closed
+        f.timestamp.value = nowStamp();
+      }, 1000);
+    }
 
     var grid = h("div", { class: "form-grid" });
     var customerField = field("Customer Name", f.customer, false);
     var recvField = field("Amount Received By", f.recvBy, false, "Who received the money");
-    var empField = field("Employee / Payee", f.employee, false, "Type to search " + (b.employees || []).length + " names");
+    var empField = field("Employee / Payee", f.employee, false);
+    var tsField = field("Timestamp", f.timestamp, false, existing ? "Recorded when the entry was created" : "Set automatically when you save"); tsField.className = "field full";
+    grid.appendChild(tsField);
     grid.appendChild(field("Type of Transaction", f.type, true));
     grid.appendChild(field("Expense Date", f.date, true));
     grid.appendChild(field("Expense Category", f.category, true));
@@ -499,10 +515,12 @@
     grid.appendChild(field("Payment Method", f.method, true));
     grid.appendChild(field("Amount (" + CUR + ")", f.amount, true));
     grid.appendChild(field("Approved By", f.approvedBy, false));
-    grid.appendChild(field("Bill / Payment Proof", f.proof, false, "Image upload (" + (API.isDemo() ? "preview: not stored" : "stored to Drive") + ")"));
+    var proofRow = h("div", { class: "full form-grid" });
+    proofRow.appendChild(field("Bill Amount", f.billProof, false, existing && existing.billProof ? "Current: " + existing.billProof + " — upload to replace" : "Bill proof image (" + (API.isDemo() ? "preview: not stored" : "stored to Drive") + ")"));
+    proofRow.appendChild(field("Payment Amount", f.payProof, false, existing && existing.refProof ? "Current: " + existing.refProof + " — upload to replace" : "Payment proof image (" + (API.isDemo() ? "preview: not stored" : "stored to Drive") + ")"));
+    grid.appendChild(proofRow);
     var purposeF = field("Purpose / Remarks", f.purpose, false); purposeF.className = "field full";
-    var proofPathF = field("Proof link / path", f.proofPath, false); proofPathF.className = "field full";
-    grid.appendChild(purposeF); grid.appendChild(proofPathF);
+    grid.appendChild(purposeF);
 
     // dynamic: show customer only when category needs it; show recvBy for PAYMENT RECV
     function refresh() {
@@ -521,16 +539,22 @@
     var saveBtn = h("button", { class: "btn primary", html: icon("check") + (existing ? " Save changes" : " Create entry") });
 
     function collect() {
-      return { expenseDate: f.date.value, type: f.type.value, recvBy: f.recvBy.value, category: f.category.value, customer: f.customer.value, employee: f.employee.value, method: f.method.value, amount: f.amount.value, approvedBy: f.approvedBy.value, purpose: f.purpose.value, billProof: f.proofPath.value };
+      return { expenseDate: f.date.value, type: f.type.value, recvBy: f.recvBy.value, category: f.category.value, customer: f.customer.value, employee: f.employee.value, method: f.method.value, amount: f.amount.value, approvedBy: f.approvedBy.value, purpose: f.purpose.value, billProof: existing ? existing.billProof || "" : "", refProof: existing ? existing.refProof || "" : "" };
     }
     function doSave(allowDup) {
       errEl.textContent = ""; saveBtn.disabled = true;
       var payload = collect();
-      var proofFile = f.proof.files && f.proof.files[0];
       var chain = Promise.resolve();
-      if (proofFile && !API.isDemo()) {
-        chain = toBase64(proofFile).then(function (b64) { return API.call("uploadProof", { base64: b64.data, mimeType: b64.mime, filename: proofFile.name }); }).then(function (up) { if (up.ok) payload.billProof = up.path; });
+      function upload(input, key) {
+        var file = input.files && input.files[0];
+        if (!file) return;
+        if (API.isDemo()) { payload[key] = "Expense_Sheet_Images/" + file.name; return; }
+        chain = chain.then(function () { return toBase64(file); })
+          .then(function (b64) { return API.call("uploadProof", { base64: b64.data, mimeType: b64.mime, filename: file.name }); })
+          .then(function (up) { if (up && up.ok) payload[key] = up.path; else throw new Error((up && up.error) || "Proof upload failed"); });
       }
+      upload(f.billProof, "billProof");
+      upload(f.payProof, "refProof");
       chain.then(function () {
         var action = existing ? "updateTransaction" : "createTransaction";
         var args = existing ? { id: existing.id, tx: payload } : { tx: payload, options: { allowDuplicate: allowDup } };
@@ -544,9 +568,9 @@
         (res.warnings || []).forEach(function (w) { toast(w, "warn", "Heads up"); });
         toast(existing ? "Updated " + existing.id : "Saved " + res.id, "ok", "Done");
         if (onDone) onDone(); else { resetForm(); if (Store.view === "add") go("transactions"); }
-      });
+      }).catch(function (e) { saveBtn.disabled = false; errEl.textContent = e.message || String(e); });
     }
-    function resetForm() { [f.amount, f.purpose, f.customer, f.proofPath].forEach(function (i) { i.value = ""; }); f.employee.value = ""; }
+    function resetForm() { [f.amount, f.purpose, f.customer, f.billProof, f.payProof].forEach(function (i) { i.value = ""; }); f.employee.value = ""; }
     saveBtn.addEventListener("click", function () { doSave(false); });
 
     card.appendChild(h("div", { class: "section-title" }, [h("div", {}, [h("h3", {}, [existing ? "Edit transaction" : "New transaction"]), h("div", { class: "sub" }, ["All validations run server-side before saving"])])]));
