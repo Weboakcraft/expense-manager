@@ -1,7 +1,8 @@
 /* Service worker — offline app shell for the PWA.
-   Network-first for API calls (they go to Apps Script, a different origin),
-   cache-first for the static shell so the app opens offline. */
-var CACHE = "oakcraft-exp-v1";
+   Network-first for the app's own files, so every redeploy shows up right
+   away; the cached copy is used only when the device is offline.
+   Cross-origin requests (Apps Script API, fonts) pass straight through. */
+var CACHE = "oakcraft-exp-v2";
 var SHELL = [
   "./", "./index.html",
   "./css/styles.css",
@@ -23,15 +24,13 @@ self.addEventListener("fetch", function (e) {
   var req = e.request;
   if (req.method !== "GET") return; // never cache POSTs / API writes
   var url = new URL(req.url);
-  // Only handle same-origin shell requests; let cross-origin (Apps Script, fonts) pass through.
   if (url.origin !== self.location.origin) return;
   e.respondWith(
-    caches.match(req).then(function (hit) {
-      return hit || fetch(req).then(function (res) {
-        var copy = res.clone();
-        caches.open(CACHE).then(function (c) { c.put(req, copy); });
-        return res;
-      }).catch(function () { return caches.match("./index.html"); });
+    fetch(req).then(function (res) {
+      if (res && res.ok) { var copy = res.clone(); caches.open(CACHE).then(function (c) { c.put(req, copy); }); }
+      return res;
+    }).catch(function () {
+      return caches.match(req).then(function (hit) { return hit || caches.match("./index.html"); });
     })
   );
 });
