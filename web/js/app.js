@@ -217,40 +217,105 @@
 
   /* ----- Dashboard ----- */
   Views.dashboard = function (v) {
-    loader(v);
-    API.call("dashboard", {}).then(function (d) {
-      v.innerHTML = "";
-      if (!d.ok) return v.appendChild(errorCard(d.error));
-      var k = d.kpis;
-      var kpis = h("div", { class: "kpis" }, [
-        kpi("Cash in Hand", money0(k.cashInHand), k.cashStatus, k.cashStatus === "critical" ? "Below critical ₹" + k.criticalBelow : k.cashStatus === "warning" ? "Below warning ₹" + k.warningBelow : "Healthy", "wallet"),
-        kpi("Total Received", money0(k.totalIn), "in", k.count + " transactions", "down"),
-        kpi("Total Paid Out", money0(k.totalOut), "out", "Avg/day (30d): " + money0(k.avgDailySpend), "up"),
-        kpi("Today's Spend", money0(k.todaySpend), k.spike ? "warn" : "", k.spike ? "⚠ Unusual vs 30-day avg" : "Within normal range", "chart")
-      ]);
-      v.appendChild(kpis);
-      var grid = h("div", { class: "grid-2" });
-      // monthly in/out
-      var c1 = card("Cash flow by month", monthlyChart(d.byMonth, d.currency));
-      // category donut
-      var c2 = card("Expense by category", donutBlock(d.byCategory));
-      grid.appendChild(c1); grid.appendChild(c2);
-      v.appendChild(grid);
-      // top categories bars + recent
-      var grid2 = h("div", { class: "grid-2", style: "margin-top:16px" });
-      grid2.appendChild(card("Top spending categories", barsBlock(d.byCategory.slice(0, 7))));
-      grid2.appendChild(card("Payment method split", barsBlock(d.byMethod, true)));
-      v.appendChild(grid2);
-      // recent transactions
-      var recentCard = h("div", { class: "card", style: "margin-top:16px" });
-      recentCard.appendChild(h("div", { class: "card-h" }, [h("h3", { class: "grow" }, ["Recent transactions"]), h("button", { class: "btn sm", onclick: function () { go("transactions"); }, html: "View all" })]));
-      var rb = h("div", {}); recentCard.appendChild(rb);
-      API.call("listTransactions", { filters: { page: 1, pageSize: 8 } }).then(function (r) {
-        rb.appendChild(txTable(r.rows, { compact: true }));
+    // ---- date range picker: Today / This Week / This Month / All Time / Custom ----
+    function iso(d) { return d.getFullYear() + "-" + (d.getMonth() < 9 ? "0" : "") + (d.getMonth() + 1) + "-" + (d.getDate() < 10 ? "0" : "") + d.getDate(); }
+    function rangeFor(key) {
+      var t = new Date(); t.setHours(0, 0, 0, 0);
+      if (key === "today") return { from: iso(t), to: iso(t) };
+      if (key === "week") { var w = new Date(t); w.setDate(t.getDate() - ((t.getDay() + 6) % 7)); return { from: iso(w), to: iso(t) }; } // Monday start
+      if (key === "month") return { from: iso(new Date(t.getFullYear(), t.getMonth(), 1)), to: iso(t) };
+      if (key === "custom") return { from: LS.get("oc_dash_from") || iso(new Date(t.getFullYear(), t.getMonth(), 1)), to: LS.get("oc_dash_to") || iso(t) };
+      return { from: "", to: "" }; // all time
+    }
+    var keys = [["today", "Today"], ["week", "This Week"], ["month", "This Month"], ["all", "All Time"], ["custom", "Custom"]];
+    var cur = LS.get("oc_dash_range") || "month";
+    var pills = h("div", { class: "pill-tabs" });
+    var fromI = h("input", { class: "input", type: "date", style: "width:160px;flex:none" });
+    var toI = h("input", { class: "input", type: "date", style: "width:160px;flex:none" });
+    var applyB = h("button", { class: "btn sm primary", style: "flex:none" }, ["Apply"]);
+    var customBox = h("div", { class: "row", style: "gap:8px;flex-wrap:wrap;align-items:center;width:auto" }, [fromI, h("span", { class: "muted" }, ["to"]), toI, applyB]);
+    var rangeLbl = h("div", { class: "muted", style: "font-size:13px" });
+    var updated = h("span", { class: "muted", style: "font-size:12px" });
+    var refreshB = h("button", { class: "btn sm ghost", title: "Refresh now" }, ["↻ Refresh"]);
+    keys.forEach(function (k) { pills.appendChild(h("button", { "data-k": k[0], onclick: function () { cur = k[0]; LS.set("oc_dash_range", cur); sync(); load(); } }, [k[1]])); });
+    applyB.addEventListener("click", function () { if (fromI.value && toI.value && fromI.value > toI.value) { toast("From date is after To date", "err"); return; } LS.set("oc_dash_from", fromI.value); LS.set("oc_dash_to", toI.value); load(); });
+    refreshB.addEventListener("click", function () { load(); });
+    var bar = h("div", { class: "toolbar" }, [pills, customBox]);
+    var infoRow = h("div", { class: "row", style: "gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 12px" }, [h("div", { class: "grow" }, [rangeLbl]), updated, refreshB]);
+    var body = h("div", {});
+    v.appendChild(bar); v.appendChild(infoRow); v.appendChild(body);
+
+    function fmtD(isoStr) { if (!isoStr) return ""; var p = isoStr.split("-"); var m = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"][+p[1] - 1]; return +p[2] + " " + m + " " + p[0]; }
+    function sync() {
+      Array.prototype.forEach.call(pills.children, function (b) { b.classList.toggle("active", b.getAttribute("data-k") === cur); });
+      customBox.style.display = cur === "custom" ? "" : "none";
+      if (cur === "custom") { var r = rangeFor("custom"); fromI.value = r.from; toI.value = r.to; }
+    }
+    function current() { return cur === "custom" ? { from: fromI.value, to: toI.value } : rangeFor(cur); }
+
+    var seq = 0;
+    function load(silent) {
+      var r = current(), my = ++seq;
+      rangeLbl.textContent = r.from || r.to ? "Showing " + (r.from === r.to ? fmtD(r.from) : fmtD(r.from) + " – " + fmtD(r.to)) + " (by Expense Date)" : "Showing all time";
+      if (!silent) { body.innerHTML = ""; loader(body); }
+      Promise.all([
+        API.call("dashboard", { filters: r }),
+        API.call("listTransactions", { filters: { page: 1, pageSize: 8, from: r.from, to: r.to } })
+      ]).then(function (res) {
+        if (my !== seq) return; // a newer request is on its way
+        var d = res[0], list = res[1];
+        body.innerHTML = "";
+        if (!d.ok) return body.appendChild(errorCard(d.error));
+        var k = d.kpis;
+        var now = new Date(); updated.textContent = "Live · updated " + now.toLocaleTimeString("en-IN");
+        body.appendChild(h("div", { class: "kpis" }, [
+          kpi("Cash in Hand", money0(k.cashInHand), k.cashStatus, (k.cashStatus === "critical" ? "Below critical ₹" + k.criticalBelow : k.cashStatus === "warning" ? "Below warning ₹" + k.warningBelow : "Healthy") + " · overall balance", "wallet"),
+          kpi("Received", money0(k.totalIn), "in", "In selected period", "down"),
+          kpi("Paid Out", money0(k.totalOut), "out", k.count + " transactions in period", "up"),
+          kpi("Today's Spend", money0(k.todaySpend), k.spike ? "warn" : "", k.spike ? "⚠ Unusual vs 30-day avg" : "Avg/day (30d): " + money0(k.avgDailySpend), "chart")
+        ]));
+        var span = r.from && r.to ? (FMT.dmyToDate(FMT.isoToDMY(r.to)) - FMT.dmyToDate(FMT.isoToDMY(r.from))) / 86400000 : 999;
+        var flow = span <= 62
+          ? card("Cash flow by day", flowChart((d.byDay || []).map(function (x) { return { label: x.day.slice(8) + "/" + x.day.slice(5, 7), in: x.in, out: x.out }; }), 62))
+          : card("Cash flow by month", flowChart((d.byMonth || []).map(function (x) { return { label: x.month.slice(2).replace("-", "/"), in: x.in, out: x.out }; }), 12));
+        var grid = h("div", { class: "grid-2" }, [flow, card("Expense by category", donutBlock(d.byCategory))]);
+        body.appendChild(grid);
+        body.appendChild(h("div", { class: "grid-2", style: "margin-top:16px" }, [
+          card("Top spending categories", barsBlock(d.byCategory.slice(0, 7))),
+          card("Payment method split", barsBlock(d.byMethod, true))
+        ]));
+        var recentCard = h("div", { class: "card", style: "margin-top:16px" });
+        recentCard.appendChild(h("div", { class: "card-h" }, [h("h3", { class: "grow" }, ["Recent transactions in period"]), h("button", { class: "btn sm", onclick: function () { txState.from = r.from; txState.to = r.to; txState.page = 1; go("transactions"); }, html: "View all" })]));
+        recentCard.appendChild(list.ok && list.rows.length ? txTable(list.rows, { compact: true }) : h("div", { class: "empty muted" }, ["No transactions in this period"]));
+        body.appendChild(recentCard);
       });
-      v.appendChild(recentCard);
-    });
+    }
+    sync(); load();
+    // live: refresh every 60 s while the dashboard is on screen
+    var timer = setInterval(function () { if (!v.isConnected || Store.view !== "dashboard" || !body.isConnected) { clearInterval(timer); return; } if (!document.hidden) load(true); }, 60000);
   };
+  function flowChart(items, maxBars) {
+    if (!items || !items.length) return h("div", { class: "empty muted" }, ["No data in this period"]);
+    var data = items.slice(-maxBars);
+    var W = 560, H = 210, pad = 30, bw = (W - pad * 2) / data.length;
+    var max = Math.max.apply(null, data.map(function (m) { return Math.max(m.in, m.out); })) || 1;
+    function y(val) { return H - pad - (val / max) * (H - pad * 2); }
+    var every = Math.ceil(data.length / 12), bars = "", labels = "";
+    data.forEach(function (m, i) {
+      var x = pad + i * bw, gap = bw * 0.18, each = (bw - gap * 2) / 2;
+      bars += '<rect x="' + (x + gap) + '" y="' + y(m.in) + '" width="' + each + '" height="' + (H - pad - y(m.in)) + '" rx="2" fill="#1f8a54"><title>' + esc(m.label) + ' · In ' + money0(m.in) + '</title></rect>';
+      bars += '<rect x="' + (x + gap + each) + '" y="' + y(m.out) + '" width="' + each + '" height="' + (H - pad - y(m.out)) + '" rx="2" fill="#b5742a"><title>' + esc(m.label) + ' · Out ' + money0(m.out) + '</title></rect>';
+      if (i % every === 0) labels += '<text x="' + (x + bw / 2) + '" y="' + (H - 8) + '" text-anchor="middle" font-size="10" fill="var(--ink-3)">' + esc(m.label) + '</text>';
+    });
+    var gl = ""; for (var g = 0; g <= 3; g++) { var gy = pad + (H - pad * 2) * g / 3; gl += '<line x1="' + pad + '" y1="' + gy + '" x2="' + (W - pad) + '" y2="' + gy + '" stroke="var(--border)" stroke-width="1"/>'; }
+    var box = h("div", {});
+    box.innerHTML = '<svg viewBox="0 0 ' + W + ' ' + H + '" class="chart" preserveAspectRatio="xMidYMid meet">' + gl + bars + labels + '</svg>';
+    box.appendChild(h("div", { class: "legend" }, [
+      h("span", { class: "li", html: '<span class="sw" style="background:#1f8a54"></span>Received' }),
+      h("span", { class: "li", html: '<span class="sw" style="background:#b5742a"></span>Paid out' })
+    ]));
+    return box;
+  }
   function kpi(label, val, cls, sub, ic) {
     return h("div", { class: "kpi " + (cls || "") }, [
       h("div", { class: "k-strip" }),
@@ -645,23 +710,102 @@
   };
 
   /* ----- Users ----- */
+  var ROLE_PRESETS = {
+    "Admin":      { add: 1, edit: 1, del: 1, approve: 1, export: 1, dashboard: 1, masters: 1 },
+    "Approver":   { add: 1, edit: 1, del: 0, approve: 1, export: 1, dashboard: 1, masters: 0 },
+    "Data Entry": { add: 1, edit: 1, del: 0, approve: 0, export: 1, dashboard: 1, masters: 0 },
+    "Viewer":     { add: 0, edit: 0, del: 0, approve: 0, export: 1, dashboard: 1, masters: 0 }
+  };
+  var PERM_COLS = [["add", "Can Add"], ["edit", "Can Edit"], ["del", "Can Delete"], ["approve", "Can Approve"], ["export", "Can Export"], ["dashboard", "Can View Dashboard"], ["masters", "Can Manage Masters"]];
+  function isTrue(v) { return v === true || String(v).toUpperCase() === "TRUE"; }
   Views.users = function (v) {
     loader(v);
     API.call("listMaster", { which: "users" }).then(function (r) {
       v.innerHTML = "";
       if (!r.ok) return v.appendChild(errorCard(r.error));
       var c = h("div", { class: "card" });
-      c.appendChild(h("div", { class: "card-h" }, [h("h3", { class: "grow" }, ["Users & permissions (" + r.rows.length + ")"])]));
-      var keys = r.rows.length ? Object.keys(r.rows[0]).filter(function (k) { return k !== "_row"; }) : [];
+      c.appendChild(h("div", { class: "card-h" }, [
+        h("h3", { class: "grow" }, ["Users & permissions (" + r.rows.length + ")"]),
+        h("button", { class: "btn primary sm", html: icon("plus") + " Add user", onclick: function () { userForm(null); } })
+      ]));
       var table = h("table", { class: "data" });
-      table.appendChild(h("thead", {}, [h("tr", {}, keys.map(function (k) { return h("th", {}, [k]); }))]));
+      table.appendChild(h("thead", {}, [h("tr", {}, ["User ID", "Name", "Email", "Role", "Department", "Active"].concat(PERM_COLS.map(function (p) { return p[1].replace("Can ", ""); })).concat([""]).map(function (k) { return h("th", {}, [k]); }))]));
       var tb = h("tbody", {});
-      r.rows.forEach(function (row) { tb.appendChild(h("tr", {}, keys.map(function (k) { var val = row[k]; if (String(val).toUpperCase() === "TRUE") return h("td", {}, [h("span", { class: "badge paid" }, ["✓"])]); if (String(val).toUpperCase() === "FALSE") return h("td", {}, [h("span", { class: "badge cash" }, ["—"])]); return h("td", {}, [String(val == null ? "" : val)]); }))); });
+      function tick(val) { return h("td", {}, [h("span", { class: "badge " + (isTrue(val) ? "paid" : "cash") }, [isTrue(val) ? "✓" : "—"])]); }
+      r.rows.forEach(function (row) {
+        var me = Store.user && String(row["User ID"]) === String(Store.user.userId);
+        var actions = h("td", { class: "nowrap" }, [
+          h("button", { class: "btn sm", html: icon("edit") + " Edit", onclick: function () { userForm(row); } }),
+          " ",
+          me ? h("span", { class: "muted", style: "font-size:12px" }, ["(you)"]) : h("button", { class: "btn sm danger", html: icon("trash") + " Remove", onclick: function () { removeUser(row); } })
+        ]);
+        tb.appendChild(h("tr", {}, [
+          h("td", { class: "mono", style: "font-size:12px" }, [String(row["User ID"] || "")]),
+          h("td", {}, [String(row.Name || "")]), h("td", {}, [String(row.Email || "")]),
+          h("td", {}, [h("span", { class: "badge online" }, [String(row.Role || "—")])]), h("td", {}, [String(row.Department || "")]),
+          tick(row.Active)
+        ].concat(PERM_COLS.map(function (p) { return tick(row[p[1]]); })).concat([actions])));
+      });
       table.appendChild(tb); c.appendChild(h("div", { class: "table-wrap" }, [table]));
       v.appendChild(c);
-      v.appendChild(h("p", { class: "hint", style: "margin-top:10px" }, ["Passwords are never shown. To add a user or set a password, use the backend's saveUser action or the seedPasswords() function in the Apps Script editor."]));
+      v.appendChild(h("p", { class: "hint", style: "margin-top:10px" }, ["Choosing a role fills in its permissions; you can still tick/untick each one. Permission changes apply the next time that user signs in. Passwords are stored hashed and never shown."]));
     });
   };
+  function removeUser(row) {
+    confirmBox("Remove user", "Remove " + (row.Name || row.Email) + " (" + row.Email + ")? They will no longer be able to sign in.", function () {
+      API.call("deleteUser", { userId: row["User ID"] }).then(function (res) {
+        if (res.ok) { toast("Removed " + (row.Name || row.Email), "ok"); go("users"); } else toast(res.error, "err");
+      });
+    }, true);
+  }
+  function userForm(row) {
+    var isNew = !row; row = row || {};
+    function field(label, node, req, hint) { return h("div", { class: "field" }, [h("label", { html: esc(label) + (req ? ' <span class="req">*</span>' : "") }), node, hint ? h("div", { class: "hint" }, [hint]) : null]); }
+    var name = h("input", { class: "input", value: row.Name || "", placeholder: "Full name" });
+    var email = h("input", { class: "input", type: "email", value: row.Email || "", placeholder: "name@oakcraft.in", autocomplete: "off" });
+    var mobile = h("input", { class: "input", value: row.Mobile || "", placeholder: "Mobile" });
+    var dept = h("input", { class: "input", value: row.Department || "", placeholder: "Department" });
+    var roles = Object.keys(ROLE_PRESETS);
+    if (row.Role && roles.indexOf(row.Role) === -1) roles.push(row.Role);
+    var role = selectFrom(roles, row.Role || "Data Entry");
+    var pwd = h("input", { class: "input", type: "password", placeholder: isNew ? "Set a password" : "Leave blank to keep current", autocomplete: "new-password" });
+    function chk(checked) { var i = h("input", { type: "checkbox", style: "width:18px;height:18px;accent-color:var(--primary)" }); i.checked = !!checked; return i; }
+    var active = chk(isNew ? true : isTrue(row.Active));
+    var boxes = {};
+    var permGrid = h("div", { class: "form-grid", style: "gap:8px 18px" });
+    PERM_COLS.forEach(function (p) {
+      boxes[p[0]] = chk(isNew ? ROLE_PRESETS["Data Entry"][p[0]] : isTrue(row[p[1]]));
+      permGrid.appendChild(h("label", { class: "row", style: "gap:8px;align-items:center;font-size:14px;cursor:pointer" }, [boxes[p[0]], p[1]]));
+    });
+    role.addEventListener("change", function () { var pr = ROLE_PRESETS[role.value]; if (pr) PERM_COLS.forEach(function (p) { boxes[p[0]].checked = !!pr[p[0]]; }); });
+    var grid = h("div", { class: "form-grid" }, [
+      field("Name", name, true), field("Email (login)", email, true),
+      field("Role", role, true), field("Department", dept, false),
+      field("Mobile", mobile, false), field(isNew ? "Password" : "New password", pwd, isNew)
+    ]);
+    var errEl = h("div", { class: "err-text", style: "min-height:18px" });
+    var body = h("div", {}, [grid,
+      h("label", { class: "row", style: "gap:8px;align-items:center;margin:4px 0 14px;font-weight:600;cursor:pointer" }, [active, "Active (can sign in)"]),
+      h("div", { style: "font-weight:600;margin-bottom:8px" }, ["Permissions"]), permGrid, errEl]);
+    var saveB = h("button", { class: "btn primary", html: icon("check") + (isNew ? " Add user" : " Save changes") });
+    var mo = modal({ title: isNew ? "Add user" : "Edit " + (row.Name || row.Email), body: body, footer: [h("button", { class: "btn ghost", onclick: function () { mo.close(); } }, ["Cancel"]), saveB] });
+    saveB.addEventListener("click", function () {
+      errEl.textContent = "";
+      if (!name.value.trim()) { errEl.textContent = "Name is required"; return; }
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.value.trim())) { errEl.textContent = "Enter a valid email"; return; }
+      if (isNew && pwd.value.length < 6) { errEl.textContent = "Password must be at least 6 characters"; return; }
+      if (!isNew && pwd.value && pwd.value.length < 6) { errEl.textContent = "New password must be at least 6 characters"; return; }
+      var u = { Name: name.value.trim(), Email: email.value.trim(), Mobile: mobile.value.trim(), Role: role.value, Department: dept.value.trim(), Active: active.checked };
+      PERM_COLS.forEach(function (p) { u[p[1]] = boxes[p[0]].checked; });
+      if (!isNew) u["User ID"] = row["User ID"];
+      saveB.disabled = true;
+      API.call("saveUser", { user: u, newPassword: pwd.value || "" }).then(function (res) {
+        saveB.disabled = false;
+        if (!res.ok) { errEl.textContent = res.error || "Could not save"; return; }
+        toast(isNew ? "User added" : "User updated", "ok"); mo.close(); go("users");
+      });
+    });
+  }
 
   /* ----- Audit ----- */
   Views.audit = function (v) {
@@ -676,7 +820,8 @@
       table.appendChild(h("thead", {}, [h("tr", {}, ["When", "User", "Action", "Entity", "Record", "Details", "Source"].map(function (k) { return h("th", {}, [k]); }))]));
       var tb = h("tbody", {});
       r.rows.forEach(function (row) {
-        var when = row.At ? new Date(row.At).toLocaleString("en-IN") : "";
+        var atD = row.At ? new Date(row.At) : null; if (atD && isNaN(atD.getTime())) atD = FMT.parseTs(row.At);
+        var when = atD ? atD.toLocaleString("en-IN") : (row.At || "");
         tb.appendChild(h("tr", {}, [
           h("td", { class: "nowrap", style: "font-size:12px" }, [when]),
           h("td", {}, [row["User Name"] || row["User Email"] || ""]),

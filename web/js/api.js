@@ -91,18 +91,25 @@
       return { ok: true, warnings: warnings };
     }
 
-    function dashboard() {
-      var opening = num(S.OPENING_BALANCE || 0), tin = 0, tout = 0, count = 0, byCat = {}, byMethod = {}, byMonth = {}, spendDays = {};
+    function dashboard(f) {
+      f = f || {};
+      var fromD = f.from ? dmyToDate(isoToDMY(f.from)) : null, toD = f.to ? dmyToDate(isoToDMY(f.to)) : null;
+      var opening = num(S.OPENING_BALANCE || 0), tin = 0, tout = 0, allIn = 0, allOut = 0, count = 0, byCat = {}, byMethod = {}, byMonth = {}, byDay = {}, spendDays = {};
       var today = new Date(); today.setHours(0, 0, 0, 0); var d30 = today.getTime() - 30 * 86400000;
       tx.forEach(function (r) {
         if (r.recordStatus === "Deleted") return;
-        var amt = num(r.amount), type = String(r.type).toUpperCase(); count++;
+        var amt = num(r.amount), type = String(r.type).toUpperCase();
+        var d0 = dmyToDate(r.expenseDate);
+        if (type === "PAYMENT PAID") allOut += amt; else allIn += amt;
+        if (d0 && type === "PAYMENT PAID" && d0.getTime() >= d30) { var k30 = d0.getFullYear() + "-" + pad2(d0.getMonth() + 1) + "-" + pad2(d0.getDate()); spendDays[k30] = (spendDays[k30] || 0) + amt; }
+        if ((fromD || toD) && (!d0 || (fromD && d0 < fromD) || (toD && d0 > toD))) return;
+        count++;
         if (type === "PAYMENT PAID") tout += amt; else tin += amt;
         if (type === "PAYMENT PAID") { byCat[r.category || "Uncategorised"] = (byCat[r.category || "Uncategorised"] || 0) + amt; byMethod[String(r.method).toUpperCase() || "OTHER"] = (byMethod[String(r.method).toUpperCase() || "OTHER"] || 0) + amt; }
         var dt = dmyToDate(r.expenseDate);
-        if (dt) { var mk = dt.getFullYear() + "-" + pad2(dt.getMonth() + 1); byMonth[mk] = byMonth[mk] || { in: 0, out: 0 }; if (type === "PAYMENT PAID") byMonth[mk].out += amt; else byMonth[mk].in += amt; if (type === "PAYMENT PAID" && dt.getTime() >= d30) { var dk = mk + "-" + pad2(dt.getDate()); spendDays[dk] = (spendDays[dk] || 0) + amt; } }
+        if (dt) { var mk = dt.getFullYear() + "-" + pad2(dt.getMonth() + 1); byMonth[mk] = byMonth[mk] || { in: 0, out: 0 }; if (type === "PAYMENT PAID") byMonth[mk].out += amt; else byMonth[mk].in += amt; var dk = mk + "-" + pad2(dt.getDate()); byDay[dk] = byDay[dk] || { in: 0, out: 0 }; if (type === "PAYMENT PAID") byDay[dk].out += amt; else byDay[dk].in += amt; }
       });
-      var cash = opening + tin - tout, crit = num(S.CASH_CRITICAL_BELOW || 0), warn = num(S.CASH_WARNING_BELOW || 0);
+      var cash = opening + allIn - allOut, crit = num(S.CASH_CRITICAL_BELOW || 0), warn = num(S.CASH_WARNING_BELOW || 0);
       var status = cash < crit ? "critical" : (cash < warn ? "warning" : "ok");
       var spend30 = Object.keys(spendDays).reduce(function (a, k) { return a + spendDays[k]; }, 0), avg = spend30 / 30;
       var tk = today.getFullYear() + "-" + pad2(today.getMonth() + 1) + "-" + pad2(today.getDate());
@@ -112,7 +119,9 @@
         ok: true, currency: S.CURRENCY_SYMBOL || "₹", orgName: S.ORG_NAME || "Oakcraft",
         kpis: { cashInHand: cash, cashStatus: status, totalIn: tin, totalOut: tout, count: count, openingBalance: opening, avgDailySpend: Math.round(avg), todaySpend: todaySpend, spike: avg > 0 && todaySpend > avg * num(S.SPIKE_MULTIPLIER || 2), criticalBelow: crit, warningBelow: warn },
         byCategory: arr(byCat), byMethod: arr(byMethod),
-        byMonth: Object.keys(byMonth).sort().map(function (k) { return { month: k, in: byMonth[k].in, out: byMonth[k].out }; })
+        byMonth: Object.keys(byMonth).sort().map(function (k) { return { month: k, in: byMonth[k].in, out: byMonth[k].out }; }),
+        byDay: Object.keys(byDay).sort().map(function (k) { return { day: k, in: byDay[k].in, out: byDay[k].out }; }),
+        range: { from: f.from || "", to: f.to || "" }
       };
     }
 
@@ -129,7 +138,7 @@
         case "me": return { ok: true, user: Store.user };
         case "logout": return { ok: true };
         case "bootstrap": return { ok: true, user: Store.user, settings: S, categories: D.categories, employees: D.employees, approvers: D.approvers, receivers: D.receivers, txTypes: ["PAYMENT PAID", "PAYMENT RECV", "RECV FROM EMPLOYEE"], paymentMethods: ["ONLINE TRANSACTION", "CASH"] };
-        case "dashboard": return dashboard();
+        case "dashboard": return dashboard(p.filters || {});
         case "listTransactions": {
           var f = p.filters || p, rows = tx.slice();
           if (!f.includeDeleted) rows = rows.filter(function (r) { return r.recordStatus !== "Deleted"; });
@@ -178,7 +187,7 @@
         }
         case "listAudit": return { ok: true, rows: audit.slice(0, p.limit || 200) };
         case "saveSetting": S[p.key] = p.value; return { ok: true, key: p.key };
-        case "saveEmployee": case "saveCategory": case "saveApprover": case "saveReceiver": case "saveUser":
+        case "saveEmployee": case "saveCategory": case "saveApprover": case "saveReceiver": case "saveUser": case "deleteUser":
           return { ok: true, id: "DEMO", warnings: ["Saved in preview memory only — deploy the backend to persist to the Sheet"] };
         case "uploadProof": return { ok: true, path: "Expense_Sheet_Images/demo-proof.jpg", url: "#", fileId: "demo" };
         default: return { ok: false, error: "Unknown action: " + action };
