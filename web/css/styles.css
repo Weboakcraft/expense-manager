@@ -355,3 +355,40 @@ table.data tr:hover .row-actions { opacity: 1; }
   .kpi .k-val { font-size: 22px; }
   .bar-row { grid-template-columns: 110px 1fr auto; }
 }
+
+/* ---------- mobile bottom tab bar (phones + Android app) ---------- */
+.bottom-nav { display: none; }
+@media (max-width: 860px) {
+  .bottom-nav {
+    display: grid; grid-template-columns: repeat(5, 1fr); align-items: end;
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 50;
+    background: var(--surface); border-top: 1px solid var(--border);
+    padding: 4px 4px calc(6px + env(safe-area-inset-bottom));
+    box-shadow: 0 -4px 16px rgba(0,0,0,.06);
+  }
+  .bn-item {
+    position: relative; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; gap: 3px;
+    background: none; border: 0; padding: 7px 0 2px; cursor: pointer;
+    color: var(--ink-3); font: inherit; font-size: 11px; font-weight: 600; -webkit-tap-highlight-color: transparent;
+  }
+  .bn-item svg.ic { width: 21px; height: 21px; }
+  .bn-item.active { color: var(--primary); }
+  .bn-item.active:not(.bn-fab)::before {
+    content: ""; position: absolute; top: -4px; left: 50%; transform: translateX(-50%);
+    width: 26px; height: 3px; border-radius: 0 0 3px 3px; background: var(--primary);
+  }
+  .bn-fab .fab {
+    width: 54px; height: 54px; border-radius: 50%; margin-top: -26px;
+    display: grid; place-items: center; background: var(--primary); color: #fff;
+    border: 4px solid var(--surface); box-shadow: 0 6px 18px rgba(15,110,92,.35);
+  }
+  .bn-fab .fab svg.ic { width: 24px; height: 24px; stroke-width: 2.4; }
+  .bn-fab:active .fab { transform: scale(.95); }
+  .content { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .toasts { bottom: calc(86px + env(safe-area-inset-bottom)); right: 12px; left: 12px; }
+}
+@media (max-width: 480px) {
+  .pill-tabs { display: flex; max-width: 100%; overflow-x: auto; scrollbar-width: none; }
+  .pill-tabs::-webkit-scrollbar { display: none; }
+  .pill-tabs button { white-space: nowrap; padding: 7px 9px; font-size: 12.5px; }
+}
