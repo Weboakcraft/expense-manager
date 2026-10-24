@@ -1,0 +1,12 @@
+{
+  "appId": "in.oakcraft.expense",
+  "appName": "Oakcraft Expense",
+  "webDir": "../web",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false,
+    "backgroundColor": "#0f6e5c"
+  }
+}

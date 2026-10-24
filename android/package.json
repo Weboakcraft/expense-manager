@@ -1,0 +1,21 @@
+{
+  "name": "oakcraft-expense-mobile",
+  "version": "1.0.0",
+  "description": "Oakcraft Expense Manager — Android wrapper (Capacitor)",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync",
+    "add:android": "cap add android",
+    "open:android": "cap open android",
+    "build:apk": "cap sync && cd android && ./gradlew assembleDebug",
+    "build:release": "cap sync && cd android && ./gradlew assembleRelease"
+  },
+  "dependencies": {
+    "@capacitor/android": "6.1.2",
+    "@capacitor/app": "6.0.2",
+    "@capacitor/core": "6.1.2"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "6.1.2"
+  }
+}

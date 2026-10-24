@@ -1,0 +1,84 @@
+You are a **Senior Data Analyst, Full-Stack Website Developer, and Android Application Developer**. I want you to analyze my existing AppSheet software and develop a professional, advanced-level website and Android application based on it.
+
+I will provide you with the following links:
+1. **Existing AppSheet Application:** Analyze the entire application thoroughly and identify all questions, fields, forms, dropdown options, validation rules, workflows, automations, and other features.
+2. **Existing Google Sheets Database:** Read and analyze the complete Google Sheets structure, including sheet names, column headers, data types, relationships, and existing data. I have already created the database, so you must use the existing database structure without changing it.
+
+### Project Requirements
+
+**1. Complete AppSheet Analysis**
+- Analyze every section, form, question, and field in the existing AppSheet application.
+- Document all dropdown values, conditional fields, mandatory fields, calculations, validation rules, and business logic.
+- Understand how the existing application works before starting development.
+- Reproduce all essential existing features and improve the user experience wherever possible.
+
+**2. Advanced Website Development**
+Build a modern, professional, responsive website using:
+- HTML5
+- CSS3
+- JavaScript
+- Python for backend services where required
+
+The website should include a clean dashboard, modern interface, advanced data-entry forms, search and filtering, reports, data visualization, validation, and a complete record-management system based on the existing application's requirements.
+
+**3. Android Application (APK)**
+- Develop an Android-compatible application that provides the same essential functionality as the website.
+- Generate a production-ready APK that can be installed on Android smartphones.
+- Ensure the interface is mobile-friendly and supports smooth navigation, data entry, and record viewing.
+- Implement reliable data synchronization with the existing Google Sheets database.
+- Handle loading states, network failures, validation errors, and successful submissions properly.
+
+**4. Google Sheets Database Integration**
+- Use my existing Google Sheets database as the primary database.
+- Preserve all existing sheet names, column headers, column order, and data structure.
+- Do not delete, rename, or modify existing columns or sheets without my explicit approval.
+- Use Google Apps Script as an API/backend if appropriate.
+- Implement secure authentication, authorized access, data validation, error handling, and duplicate-submission protection.
+- Ensure that website and Android application submissions are correctly reflected in the same Google Sheets database.
+- Read the existing database structure before implementing any integration.
+
+**5. GitHub Deployment**
+- Prepare the website for deployment through GitHub Pages or another suitable GitHub-based hosting setup.
+- If Python backend services are required, deploy them separately to an appropriate hosting platform because GitHub Pages does not run Python server-side code.
+- Provide the complete source code, repository structure, configuration files, and step-by-step deployment instructions.
+- Make the website accessible through a live URL.
+
+**6. Professional-Level Features**
+Where appropriate to the existing application, include:
+- Dashboard with live KPIs and summary cards.
+- Advanced search, sorting, filtering, and date-range filters.
+- Data tables with pagination and export options.
+- Reports and charts.
+- User authentication and role-based permissions.
+- Activity history and timestamped audit logs.
+- Mobile-responsive design.
+- Reliable API integration and clear error messages.
+- Optimized performance, maintainable code, and secure configuration.
+
+### Development Workflow
+
+Follow this sequence:
+
+1. Inspect and analyze the existing AppSheet application.
+2. Read and document the complete Google Sheets database structure.
+3. Prepare a detailed feature list and map each AppSheet field to its corresponding database column.
+4. Design the website and Android application architecture.
+5. Develop the website, backend/API, and Android-compatible application.
+6. Test all forms, validations, calculations, permissions, and database operations.
+7. Build and test the Android APK.
+8. Deploy the website and provide the live URL.
+9. Provide the complete source code, APK, setup instructions, and testing report.
+
+**Important:** Do not start coding based on assumptions. First analyze the links and existing database thoroughly. If access to the AppSheet application or Google Sheets is restricted, explain exactly what access or information is required before proceeding.
+
+### Final Deliverables
+
+- Complete analysis of the existing AppSheet application.
+- Documented Google Sheets database mapping.
+- Professional, fully functional website.
+- Android APK ready for installation and testing.
+- Secure integration with the existing Google Sheets database.
+- GitHub repository and deployment instructions.
+- Testing report and future maintenance guidance.
+
+**Your objective is to deliver a complete, reliable, professional-grade software solution—not just a UI design or prototype.**

@@ -1,0 +1,19 @@
+# Node / Capacitor
+node_modules/
+android/android/            # generated native project (recreate with: npx cap add android)
+android/www/
+*.log
+
+# Android build output + secrets — NEVER commit keystores
+*.apk
+*.aab
+*.keystore
+*.jks
+local.properties
+.gradle/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
