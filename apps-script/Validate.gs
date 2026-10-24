@@ -83,6 +83,14 @@ function validateTx_(tx, isEdit) {
         isoDateToDMY_(S.MONTH_LOCK_BEFORE) + ' cannot be added or changed');
   }
 
+  // --- new entries: payment proof + remarks are mandatory ---
+  if (!isEdit) {
+    if (!String(tx['Expense Reference Proof'] || '').trim())
+      return err_('Payment Amount proof is required');
+    if (!String(tx['Purpose / Remarks'] || '').trim())
+      return err_('Purpose / Remarks is required');
+  }
+
   // --- proof requirements ---
   var hasProof = !!String(tx['Bill / Payment Proof'] || '').trim() ||
                  !!String(tx['Expense Reference Proof'] || '').trim();
