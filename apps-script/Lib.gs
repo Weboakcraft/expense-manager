@@ -16,10 +16,22 @@ function readObjects_(sheetName, headerList) {
     var isEmpty = raw.every(function (c) { return c === '' || c === null; });
     if (isEmpty) continue;
     var obj = { _row: r + 1 }; // 1-based sheet row number
-    for (var c = 0; c < headers.length; c++) obj[headers[c]] = raw[c];
+    for (var c = 0; c < headers.length; c++) obj[headers[c]] = cellToText_(raw[c]);
     rows.push(obj);
   }
   return { headers: headers, rows: rows };
+}
+
+/**
+ * Sheets returns real date cells as Date objects. The app works with
+ * 'dd/MM/yyyy' (dates) and 'dd/MM/yyyy HH:mm:ss' (timestamps) text, so
+ * convert here once (script time zone = Asia/Kolkata, same as the sheet).
+ */
+function cellToText_(v) {
+  if (!(v instanceof Date) || isNaN(v.getTime())) return v;
+  var d = pad2_(v.getDate()) + '/' + pad2_(v.getMonth() + 1) + '/' + v.getFullYear();
+  if (v.getHours() === 0 && v.getMinutes() === 0 && v.getSeconds() === 0) return d;
+  return d + ' ' + pad2_(v.getHours()) + ':' + pad2_(v.getMinutes()) + ':' + pad2_(v.getSeconds());
 }
 
 /** Map an object to a row array following the sheet's real header order. */

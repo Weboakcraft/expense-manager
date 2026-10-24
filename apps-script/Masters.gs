@@ -155,6 +155,12 @@ function saveUser_(principal, user, newPassword) {
     USR_COLS.forEach(function (c) { if (user.hasOwnProperty(c) && c !== 'Password Hash') payload[c] = user[c]; });
 
     if (newPassword) payload['Password Hash'] = hashPassword_(newPassword);
+    if (payload['Email'] !== undefined) {
+      payload['Email'] = String(payload['Email']).trim();
+      if (!payload['Email']) return err_('Email is required');
+      var clash = findUserByEmail_(payload['Email']);
+      if (clash && String(clash['User ID']) !== String(user['User ID'] || '')) return err_('A user with this email already exists');
+    }
 
     if (isEdit) {
       var row = findMasterRow_(SHEETS.USR, 'User ID', user['User ID']);
@@ -170,6 +176,20 @@ function saveUser_(principal, user, newPassword) {
     appendObject_(SHEETS.USR, payload);
     audit_(principal.email, principal.name, 'CREATE', 'user', id, user['Email'] || '', '', 'web');
     return { ok: true, id: id };
+  });
+}
+
+/** Remove a user row from User_Master (admin only). Cannot remove yourself. */
+function deleteUser_(principal, userId) {
+  requirePerm_(principal, 'masters');
+  if (!userId) return err_('User ID is required');
+  if (String(userId) === String(principal.userId)) return err_('You cannot remove your own account');
+  return withLock_(function () {
+    var row = findMasterRow_(SHEETS.USR, 'User ID', userId);
+    if (!row) return err_('User not found');
+    sheet_(SHEETS.USR).deleteRow(row._row);
+    audit_(principal.email, principal.name, 'DELETE', 'user', userId, row['Email'] || '', '', 'web');
+    return { ok: true, id: userId };
   });
 }
 

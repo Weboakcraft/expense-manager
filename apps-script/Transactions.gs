@@ -243,6 +243,11 @@ function dashboard_(principal, filters) {
   var data = readObjects_(SHEETS.TX, TX_COLS);
 
   var opening = num_(S.OPENING_BALANCE, 0);
+  // optional date range (yyyy-mm-dd or dd/MM/yyyy), inclusive, on Expense Date
+  var fromD = filters.from ? dmyToDate_(isoDateToDMY_(filters.from)) : null;
+  var toD = filters.to ? dmyToDate_(isoDateToDMY_(filters.to)) : null;
+  var hasRange = !!(fromD || toD);
+  var allIn = 0, allOut = 0, byDay = {};
   var totalIn = 0, totalOut = 0, count = 0;
   var byCategory = {}, byMonth = {}, byMethod = {};
   var recent = [];
@@ -255,6 +260,20 @@ function dashboard_(principal, filters) {
     if (String(r['Record Status']) === RECORD_STATUS.DELETED) return;
     var amt = num_(r['Amount']);
     var type = String(r['Type of Transaction']).toUpperCase();
+    var d = dmyToDate_(r['Expense Date']);
+    // all-time totals always drive Cash in Hand
+    if (type === 'PAYMENT PAID') allOut += amt; else allIn += amt;
+    // 30-day average + today's spend (independent of the selected range)
+    if (d && type === 'PAYMENT PAID' && d.getTime() >= days30) {
+      spend30 += amt;
+      var dk30 = d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
+      spendDays[dk30] = (spendDays[dk30] || 0) + amt;
+    }
+    if (hasRange) {
+      if (!d) return;
+      if (fromD && d < fromD) return;
+      if (toD && d > toD) return;
+    }
     count++;
     if (type === 'PAYMENT RECV') totalIn += amt;
     else if (type === 'RECV FROM EMPLOYEE') totalIn += amt;
@@ -268,20 +287,17 @@ function dashboard_(principal, filters) {
     var method = String(r['Payment Method']).toUpperCase() || 'OTHER';
     byMethod[method] = (byMethod[method] || 0) + (type === 'PAYMENT PAID' ? amt : 0);
 
-    var d = dmyToDate_(r['Expense Date']);
     if (d) {
       var monKey = d.getFullYear() + '-' + pad2_(d.getMonth() + 1);
       if (!byMonth[monKey]) byMonth[monKey] = { in: 0, out: 0 };
       if (type === 'PAYMENT PAID') byMonth[monKey].out += amt; else byMonth[monKey].in += amt;
-      if (type === 'PAYMENT PAID' && d.getTime() >= days30) {
-        spend30 += amt;
-        var dk = d.getFullYear() + '-' + pad2_(d.getMonth() + 1) + '-' + pad2_(d.getDate());
-        spendDays[dk] = (spendDays[dk] || 0) + amt;
-      }
+      var dayKey = monKey + '-' + pad2_(d.getDate());
+      if (!byDay[dayKey]) byDay[dayKey] = { in: 0, out: 0 };
+      if (type === 'PAYMENT PAID') byDay[dayKey].out += amt; else byDay[dayKey].in += amt;
     }
   });
 
-  var cashInHand = opening + totalIn - totalOut;
+  var cashInHand = opening + allIn - allOut;
   var avgDaily = spend30 / 30;
   var spikeMult = num_(S.SPIKE_MULTIPLIER, 2);
 
@@ -304,6 +320,9 @@ function dashboard_(principal, filters) {
   var monthsArr = Object.keys(byMonth).sort().map(function (k) {
     return { month: k, in: byMonth[k].in, out: byMonth[k].out };
   });
+  var daysArr = Object.keys(byDay).sort().map(function (k) {
+    return { day: k, in: byDay[k].in, out: byDay[k].out };
+  });
 
   return {
     ok: true,
@@ -312,6 +331,7 @@ function dashboard_(principal, filters) {
     kpis: {
       cashInHand: cashInHand, cashStatus: cashStatus,
       totalIn: totalIn, totalOut: totalOut, count: count,
+      allTimeIn: allIn, allTimeOut: allOut,
       openingBalance: opening,
       avgDailySpend: Math.round(avgDaily),
       todaySpend: todaySpend, spike: spike,
@@ -319,6 +339,8 @@ function dashboard_(principal, filters) {
     },
     byCategory: toSortedArr(byCategory),
     byMethod: toSortedArr(byMethod),
-    byMonth: monthsArr
+    byMonth: monthsArr,
+    byDay: daysArr,
+    range: { from: filters.from || '', to: filters.to || '' }
   };
 }

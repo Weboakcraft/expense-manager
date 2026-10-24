@@ -76,6 +76,7 @@ function handle_(action, data, token, ip) {
       case 'saveApprover':  return json_(saveApprover_(principal, data.approver || {}));
       case 'saveReceiver':  return json_(saveReceiver_(principal, data.receiver || {}));
       case 'saveUser':      return json_(saveUser_(principal, data.user || {}, data.newPassword));
+      case 'deleteUser':    return json_(deleteUser_(principal, data.userId));
       case 'saveSetting':   return json_(saveSetting_(principal, data.key, data.value));
 
       case 'listAudit':     return json_(listAudit_(principal, data.limit));
