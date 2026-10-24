@@ -194,12 +194,27 @@
     if (API.isDemo()) main.appendChild(h("div", { class: "demo-banner", html: icon("alert") + " <span><b>Preview mode</b> — showing a snapshot of your real data. Changes stay in memory. Connect the backend (edit <span class='mono'>js/config.js</span>) to go live.</span>" }));
     main.appendChild(h("div", { class: "content", id: "view" }));
     app.appendChild(main);
+    // mobile / APK: bottom tab bar so the main screens are one tap away (no sidebar needed)
+    function tab(view, label, ic, perm) {
+      if (perm && !can(perm)) return h("span", {});
+      return h("button", { type: "button", class: "bn-item" + (Store.view === view ? " active" : ""), "data-view": view, onclick: function () { go(view); } , html: icon(ic) + "<span>" + esc(label) + "</span>" });
+    }
+    var bnav = h("nav", { class: "bottom-nav" }, [
+      tab("dashboard", "Home", "grid", "dashboard"),
+      tab("transactions", "Records", "list", "dashboard"),
+      can("add") ? h("button", { type: "button", class: "bn-item bn-fab" + (Store.view === "add" ? " active" : ""), "data-view": "add", onclick: function () { go("add"); }, html: '<span class="fab">' + icon("plus") + "</span><span>New</span>" }) : h("span", {}),
+      tab("reports", "Reports", "chart", "dashboard"),
+      h("button", { type: "button", class: "bn-item bn-more", onclick: function () { app.classList.toggle("nav-open"); }, html: icon("menu") + "<span>More</span>" })
+    ]);
+    app.appendChild(bnav);
     root.appendChild(app);
   }
 
   function go(view) {
     Store.view = view;
-    document.querySelectorAll(".nav-item").forEach(function (n) { n.classList.toggle("active", n.getAttribute("data-view") === view); });
+    document.querySelectorAll(".nav-item, .bn-item[data-view]").forEach(function (n) { n.classList.toggle("active", n.getAttribute("data-view") === view); });
+    var more = document.querySelector(".bn-more"); if (more) more.classList.toggle("active", ["masters", "users", "audit", "settings"].indexOf(view) >= 0);
+    window.scrollTo(0, 0);
     var titles = { dashboard: "Dashboard", transactions: "Transactions", add: "New Entry", reports: "Reports & Analytics", masters: "Master Data", users: "Users & Permissions", audit: "Audit Log", settings: "Settings" };
     if (el("page-title")) el("page-title").textContent = titles[view] || view;
     var app = el("app"); if (app) app.classList.remove("nav-open");
