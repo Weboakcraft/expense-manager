@@ -25,5 +25,38 @@
   <script src="js/demo-data.js"></script>
   <script src="js/api.js"></script>
   <script src="js/app.js"></script>
+  <!-- Show/hide password (eye) toggle for every password field -->
+  <script>
+  (function () {
+    var css = ".pw-wrap{position:relative}.pw-wrap>input{padding-right:46px;width:100%;box-sizing:border-box}" +
+      ".pw-eye{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:36px;height:36px;border:0;padding:0;" +
+      "background:transparent;color:var(--ink-3,#888);cursor:pointer;display:flex;align-items:center;justify-content:center;border-radius:8px}" +
+      ".pw-eye:hover,.pw-eye:focus-visible{color:var(--primary,#0f6e5c);outline:none}.pw-eye svg{width:20px;height:20px}";
+    var st = document.createElement("style"); st.textContent = css; document.head.appendChild(st);
+    var A = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">';
+    var EYE = A + '<path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></svg>';
+    var OFF = A + '<path d="M17.9 17.9A10.4 10.4 0 0 1 12 19c-6.4 0-10-7-10-7a18.5 18.5 0 0 1 5.1-5.9M9.9 5.2A9.7 9.7 0 0 1 12 5c6.4 0 10 7 10 7a18.6 18.6 0 0 1-2.2 3.2M14.1 14.2a3 3 0 1 1-4.2-4.2"/><path d="M2 2l20 20"/></svg>';
+    function enhance(inp) {
+      if (inp.getAttribute("data-pw-eye")) return;
+      inp.setAttribute("data-pw-eye", "1");
+      var wrap = document.createElement("div"); wrap.className = "pw-wrap";
+      inp.parentNode.insertBefore(wrap, inp); wrap.appendChild(inp);
+      var b = document.createElement("button"); b.type = "button"; b.className = "pw-eye";
+      b.setAttribute("aria-label", "Show password"); b.title = "Show password"; b.innerHTML = EYE;
+      b.addEventListener("mousedown", function (e) { e.preventDefault(); });
+      b.addEventListener("click", function () {
+        var show = inp.type === "password";
+        inp.type = show ? "text" : "password";
+        b.innerHTML = show ? OFF : EYE;
+        b.title = show ? "Hide password" : "Show password"; b.setAttribute("aria-label", b.title);
+        inp.focus();
+      });
+      wrap.appendChild(b);
+    }
+    function scan() { var l = document.querySelectorAll('input[type="password"]:not([data-pw-eye])'); for (var i = 0; i < l.length; i++) enhance(l[i]); }
+    new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true });
+    scan();
+  })();
+  </script>
 </body>
 </html>
