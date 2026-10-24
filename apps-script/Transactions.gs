@@ -88,8 +88,31 @@ function listTransactions_(principal, filters) {
   return { ok: true, total: total, page: page, pageSize: size, rows: pageRows };
 }
 
+/**
+ * The web/app client sends short keys (type, amount, billProof...). Convert
+ * them to the real sheet headers. Only keys that are present are copied, so
+ * partial edits keep the other columns as they are.
+ */
+var CLIENT_TX_KEYS_ = {
+  expenseDate: 'Expense Date', type: 'Type of Transaction', recvBy: 'Amount Recv By',
+  category: 'Expense Category', customer: 'Customer Name', employee: 'Employee Name',
+  method: 'Payment Method', amount: 'Amount', approvedBy: 'Approved By',
+  billProof: 'Bill / Payment Proof', refProof: 'Expense Reference Proof',
+  purpose: 'Purpose / Remarks', status: 'Status'
+};
+function normalizeTx_(tx) {
+  tx = tx || {};
+  var out = {};
+  Object.keys(tx).forEach(function (k) {
+    var col = CLIENT_TX_KEYS_[k] || k;
+    out[col] = tx[k];
+  });
+  return out;
+}
+
 function createTransaction_(principal, tx, options) {
   requirePerm_(principal, 'add');
+  tx = normalizeTx_(tx);
   options = options || {};
   // allow an explicit duplicate override
   var v = validateTx_(tx, false);
@@ -140,6 +163,7 @@ function findTxRow_(id) {
 
 function updateTransaction_(principal, id, tx) {
   requirePerm_(principal, 'edit');
+  tx = normalizeTx_(tx);
   var existing = findTxRow_(id);
   if (!existing) return err_('Transaction ' + id + ' not found');
   if (String(existing['Record Status']) === RECORD_STATUS.DELETED)

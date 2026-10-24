@@ -84,7 +84,8 @@ function validateTx_(tx, isEdit) {
   }
 
   // --- proof requirements ---
-  var hasProof = !!String(tx['Bill / Payment Proof'] || '').trim();
+  var hasProof = !!String(tx['Bill / Payment Proof'] || '').trim() ||
+                 !!String(tx['Expense Reference Proof'] || '').trim();
   var requireOnline = truthy_(S.REQUIRE_PROOF_ONLINE);
   var cashAbove = num_(S.REQUIRE_PROOF_CASH_ABOVE, 0);
   if (method === 'ONLINE TRANSACTION' && requireOnline && !hasProof)
