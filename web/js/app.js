@@ -206,7 +206,7 @@
     var v = el("view"); if (v) { v.innerHTML = ""; (Views[view] || Views.dashboard)(v); }
   }
 
-  function logout() { API.call("logout", {}); Store.clear(); renderLogin(); }
+  function logout() { API.call("logout", {}); API.clearCache(); LS.del("oc_boot"); Store.clear(); renderLogin(); }
 
   function loader(container) { container.appendChild(h("div", { class: "loading-full" }, [h("div", { class: "spinner" })])); }
 
@@ -257,17 +257,20 @@
     function load(silent) {
       var r = current(), my = ++seq;
       rangeLbl.textContent = r.from || r.to ? "Showing " + (r.from === r.to ? fmtD(r.from) : fmtD(r.from) + " – " + fmtD(r.to)) + " (by Expense Date)" : "Showing all time";
-      if (!silent) { body.innerHTML = ""; loader(body); }
-      Promise.all([
-        API.call("dashboard", { filters: r }),
-        API.call("listTransactions", { filters: { page: 1, pageSize: 8, from: r.from, to: r.to } })
-      ]).then(function (res) {
+      var dq = { filters: r }, lq = { filters: { page: 1, pageSize: 8, from: r.from, to: r.to } };
+      var cd = API.peek("dashboard", dq), cl = API.peek("listTransactions", lq), shown = null;
+      if (cd && cl) { paint(cd, cl, true); shown = JSON.stringify([cd, cl]); }
+      else if (!silent) { body.innerHTML = ""; loader(body); }
+      Promise.all([API.call("dashboard", dq), API.call("listTransactions", lq)]).then(function (res) {
         if (my !== seq) return; // a newer request is on its way
-        var d = res[0], list = res[1];
+        if (shown && res[0].ok && JSON.stringify(res) === shown) { updated.textContent = "Live · updated " + new Date().toLocaleTimeString("en-IN"); return; }
+        paint(res[0], res[1], false);
+      });
+      function paint(d, list, fromCache) {
         body.innerHTML = "";
         if (!d.ok) return body.appendChild(errorCard(d.error));
         var k = d.kpis;
-        var now = new Date(); updated.textContent = "Live · updated " + now.toLocaleTimeString("en-IN");
+        updated.textContent = fromCache ? "Updating…" : "Live · updated " + new Date().toLocaleTimeString("en-IN");
         body.appendChild(h("div", { class: "kpis" }, [
           kpi("Cash in Hand", money0(k.cashInHand), k.cashStatus, (k.cashStatus === "critical" ? "Below critical ₹" + k.criticalBelow : k.cashStatus === "warning" ? "Below warning ₹" + k.warningBelow : "Healthy") + " · overall balance", "wallet"),
           kpi("Received", money0(k.totalIn), "in", "In selected period", "down"),
@@ -288,7 +291,7 @@
         recentCard.appendChild(h("div", { class: "card-h" }, [h("h3", { class: "grow" }, ["Recent transactions in period"]), h("button", { class: "btn sm", onclick: function () { txState.from = r.from; txState.to = r.to; txState.page = 1; go("transactions"); }, html: "View all" })]));
         recentCard.appendChild(list.ok && list.rows.length ? txTable(list.rows, { compact: true }) : h("div", { class: "empty muted" }, ["No transactions in this period"]));
         body.appendChild(recentCard);
-      });
+      }
     }
     sync(); load();
     // live: refresh every 60 s while the dashboard is on screen
@@ -426,7 +429,7 @@
 
     function load() {
       tbody.innerHTML = ""; loader(tbody);
-      API.call("listTransactions", { filters: txState }).then(function (r) {
+      API.swr("listTransactions", { filters: txState }, function (r) {
         tbody.innerHTML = "";
         if (!r.ok) { tbody.appendChild(errorCard(r.error)); return; }
         txState.rows = r.rows; txState.total = r.total;
@@ -693,7 +696,7 @@
     function render() {
       Array.prototype.forEach.call(pills.children, function (b) { b.classList.toggle("active", b.textContent === labels[active]); });
       holder.innerHTML = ""; loader(holder);
-      API.call("listMaster", { which: active }).then(function (r) {
+      API.swr("listMaster", { which: active }, function (r) {
         holder.innerHTML = "";
         if (!r.ok) return holder.appendChild(errorCard(r.error));
         var c = h("div", { class: "card" });
@@ -720,7 +723,7 @@
   function isTrue(v) { return v === true || String(v).toUpperCase() === "TRUE"; }
   Views.users = function (v) {
     loader(v);
-    API.call("listMaster", { which: "users" }).then(function (r) {
+    API.swr("listMaster", { which: "users" }, function (r) {
       v.innerHTML = "";
       if (!r.ok) return v.appendChild(errorCard(r.error));
       var c = h("div", { class: "card" });
@@ -810,7 +813,7 @@
   /* ----- Audit ----- */
   Views.audit = function (v) {
     loader(v);
-    API.call("listAudit", { limit: 300 }).then(function (r) {
+    API.swr("listAudit", { limit: 300 }, function (r) {
       v.innerHTML = "";
       if (!r.ok) return v.appendChild(errorCard(r.error));
       var c = h("div", { class: "card" });
@@ -938,11 +941,20 @@
      ============================================================ */
   function boot() {
     renderShell();
-    var v = el("view"); loader(v);
+    var v = el("view");
+    var cached = null; try { cached = JSON.parse(LS.get("oc_boot") || "null"); } catch (e) {}
+    if (cached && cached.user && Store.user && cached.user.email === Store.user.email) {
+      Store.boot = cached; go(Store.view || "dashboard"); // instant start from last session
+    } else loader(v);
     API.call("bootstrap", {}).then(function (b) {
-      if (!b.ok) { if (b.code === "AUTH") { Store.clear(); return renderLogin("Session expired. Please sign in again."); } v.innerHTML = ""; v.appendChild(errorCard(b.error)); return; }
+      if (!b.ok) {
+        if (b.code === "AUTH") { API.clearCache(); LS.del("oc_boot"); Store.clear(); return renderLogin("Session expired. Please sign in again."); }
+        if (!cached) { v.innerHTML = ""; v.appendChild(errorCard(b.error)); }
+        return;
+      }
       Store.boot = b; if (b.user) Store.user = b.user;
-      go(Store.view || "dashboard");
+      try { LS.set("oc_boot", JSON.stringify(b)); } catch (e) {}
+      if (!cached) go(Store.view || "dashboard");
     });
   }
 

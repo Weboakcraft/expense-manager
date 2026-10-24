@@ -198,13 +198,60 @@
     return { handle: handle };
   })();
 
+  /* ---------------- speed: response cache ----------------
+     Read responses are remembered (memory + localStorage) so a screen can
+     paint instantly from the last result while the fresh one loads in the
+     background. Any write (save/delete/restore/...) clears the cache. */
+  var READS = { bootstrap: 1, dashboard: 1, listTransactions: 1, listMaster: 1, listAudit: 1 };
+  var CACHE_KEY = "oc_swr_v1", MAX_ENTRIES = 40;
+  var mem = (function () { try { return JSON.parse(localStorage.getItem(CACHE_KEY) || "{}") || {}; } catch (e) { return {}; } })();
+  var saveT = null;
+  function persist() {
+    clearTimeout(saveT);
+    saveT = setTimeout(function () {
+      try {
+        var keys = Object.keys(mem).sort(function (a, b) { return mem[b].t - mem[a].t; });
+        keys.slice(MAX_ENTRIES).forEach(function (k) { delete mem[k]; });
+        localStorage.setItem(CACHE_KEY, JSON.stringify(mem));
+      } catch (e) { try { localStorage.removeItem(CACHE_KEY); } catch (x) {} }
+    }, 300);
+  }
+  function ckey(action, payload) {
+    return action + ":" + JSON.stringify(payload || {}, function (k, v) { return (k === "rows" || k === "total") ? undefined : v; });
+  }
+  function cacheable(action, payload) {
+    if (!READS[action]) return false;
+    var f = payload && (payload.filters || payload);
+    return !(f && parseInt(f.pageSize, 10) > 200); // never cache full exports
+  }
+  function clearCache() { mem = {}; try { localStorage.removeItem(CACHE_KEY); } catch (e) {} }
+  function rawCall(action, payload) {
+    if (LIVE) return liveCall(action, payload);
+    return new Promise(function (res) { setTimeout(function () { res(Demo.handle(action, payload)); }, 120); });
+  }
+
   /* ---------------- public API ---------------- */
   window.API = {
     isDemo: function () { return !LIVE; },
     mode: function () { return LIVE ? "live" : "demo"; },
     call: function (action, payload) {
-      if (LIVE) return liveCall(action, payload);
-      return new Promise(function (res) { setTimeout(function () { res(Demo.handle(action, payload)); }, 120); });
-    }
+      return rawCall(action, payload).then(function (r) {
+        if (READS[action]) { if (r && r.ok && cacheable(action, payload)) { mem[ckey(action, payload)] = { t: Date.now(), r: r }; persist(); } }
+        else if (action !== "health" && action !== "me" && action !== "uploadProof") clearCache();
+        return r;
+      });
+    },
+    /** Last good response for this exact request, or null. */
+    peek: function (action, payload) { var e = mem[ckey(action, payload)]; return e ? e.r : null; },
+    /** Stale-while-revalidate: cb(cached) right away if we have it, then cb(fresh) when it differs. */
+    swr: function (action, payload, cb) {
+      var cached = this.peek(action, payload), shown = cached ? JSON.stringify(cached) : null;
+      if (cached) cb(cached, true);
+      return this.call(action, payload).then(function (r) {
+        if (!shown || !r || !r.ok || JSON.stringify(r) !== shown) cb(r, false);
+        return r;
+      });
+    },
+    clearCache: clearCache
   };
 })();
