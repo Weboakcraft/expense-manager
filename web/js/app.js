@@ -553,8 +553,8 @@
     f.amount = h("input", { class: "input", type: "number", step: "0.01", min: "0", placeholder: "0.00", value: existing ? existing.amount : "" });
     f.approvedBy = selectFrom([""].concat((b.approvers || []).map(function (a) { return a.name; })), existing ? existing.approvedBy || "" : "", "Approved by");
     f.purpose = h("textarea", { class: "input", rows: "2", placeholder: "What is this for?" }); f.purpose.value = existing ? existing.purpose || "" : "";
-    f.billProof = h("input", { class: "input", type: "file", accept: "image/*" });
-    f.payProof = h("input", { class: "input", type: "file", accept: "image/*" });
+    f.billProof = proofPicker(existing ? existing.billProof : "");
+    f.payProof = proofPicker(existing ? existing.refProof : "");
     // 1. automatic, read-only timestamp (server stamps the real value on save)
     f.timestamp = h("input", { class: "input", type: "text", readonly: "readonly", tabindex: "-1", style: "background:var(--bg-2,#f1efea);cursor:not-allowed" });
     function nowStamp() { var d = new Date(), p = function (n) { return (n < 10 ? "0" : "") + n; }; return p(d.getDate()) + "/" + p(d.getMonth() + 1) + "/" + d.getFullYear() + " " + p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds()); }
@@ -584,10 +584,10 @@
     grid.appendChild(field("Amount (" + CUR + ")", f.amount, true));
     grid.appendChild(field("Approved By", f.approvedBy, false));
     var proofRow = h("div", { class: "full form-grid" });
-    proofRow.appendChild(field("Bill Amount", f.billProof, false, existing && existing.billProof ? "Current: " + existing.billProof + " — upload to replace" : "Bill proof image (" + (API.isDemo() ? "preview: not stored" : "stored to Drive") + ")"));
-    proofRow.appendChild(field("Payment Amount", f.payProof, false, existing && existing.refProof ? "Current: " + existing.refProof + " — upload to replace" : "Payment proof image (" + (API.isDemo() ? "preview: not stored" : "stored to Drive") + ")"));
+    proofRow.appendChild(field("Bill Amount", f.billProof.node, false, "Bill proof — take a photo or pick from gallery"));
+    proofRow.appendChild(field("Payment Amount", f.payProof.node, true, "Payment proof — take a photo or pick from gallery"));
     grid.appendChild(proofRow);
-    var purposeF = field("Purpose / Remarks", f.purpose, false); purposeF.className = "field full";
+    var purposeF = field("Purpose / Remarks", f.purpose, true); purposeF.className = "field full";
     grid.appendChild(purposeF);
 
     // dynamic: show customer only when category needs it; show recvBy for PAYMENT RECV
@@ -612,13 +612,15 @@
     function doSave(allowDup) {
       errEl.textContent = ""; saveBtn.disabled = true;
       var payload = collect();
+      if (!f.payProof.file() && !payload.refProof) { errEl.textContent = "Payment Amount proof is required — take a photo or upload one"; saveBtn.disabled = false; return; }
+      if (!String(payload.purpose || "").trim()) { errEl.textContent = "Purpose / Remarks is required"; saveBtn.disabled = false; f.purpose.focus(); return; }
       var chain = Promise.resolve();
-      function upload(input, key) {
-        var file = input.files && input.files[0];
+      function upload(picker, key) {
+        var file = picker.file();
         if (!file) return;
         if (API.isDemo()) { payload[key] = "Expense_Sheet_Images/" + file.name; return; }
-        chain = chain.then(function () { return toBase64(file); })
-          .then(function (b64) { return API.call("uploadProof", { base64: b64.data, mimeType: b64.mime, filename: file.name }); })
+        chain = chain.then(function () { return compressToBase64(file); })
+          .then(function (b64) { var nm = (file.name || "photo").replace(/\.[^.]+$/, "") + (b64.mime === "image/jpeg" ? ".jpg" : (file.name.match(/\.[^.]+$/) || [".jpg"])[0]); return API.call("uploadProof", { base64: b64.data, mimeType: b64.mime, filename: nm }); })
           .then(function (up) { if (up && up.ok) payload[key] = up.path; else throw new Error((up && up.error) || "Proof upload failed"); });
       }
       upload(f.billProof, "billProof");
@@ -638,7 +640,7 @@
         if (onDone) onDone(); else { resetForm(); if (Store.view === "add") go("transactions"); }
       }).catch(function (e) { saveBtn.disabled = false; errEl.textContent = e.message || String(e); });
     }
-    function resetForm() { [f.amount, f.purpose, f.customer, f.billProof, f.payProof].forEach(function (i) { i.value = ""; }); f.employee.value = ""; }
+    function resetForm() { [f.amount, f.purpose, f.customer].forEach(function (i) { i.value = ""; }); f.billProof.clear(); f.payProof.clear(); f.employee.value = ""; }
     saveBtn.addEventListener("click", function () { doSave(false); });
 
     card.appendChild(h("div", { class: "section-title" }, [h("div", {}, [h("h3", {}, [existing ? "Edit transaction" : "New transaction"]), h("div", { class: "sub" }, ["All validations run server-side before saving"])])]));
@@ -925,6 +927,59 @@
 
   /* ---------------- utils ---------------- */
   function debounce(fn, ms) { var t; return function () { var a = arguments, c = this; clearTimeout(t); t = setTimeout(function () { fn.apply(c, a); }, ms); }; }
+  /* Proof picker: "Camera" opens the camera directly, "Gallery" picks an existing photo/file. */
+  function proofPicker(currentPath) {
+    var chosen = null;
+    function mkInput(capture) {
+      var i = h("input", { type: "file", accept: "image/*", style: "display:none" });
+      if (capture) i.setAttribute("capture", "environment");
+      i.addEventListener("change", function () { if (i.files && i.files[0]) set(i.files[0]); i.value = ""; });
+      return i;
+    }
+    var cam = mkInput(true), gal = mkInput(false);
+    var camB = h("button", { type: "button", class: "btn sm", html: "📷 Camera", onclick: function () { cam.click(); } });
+    var galB = h("button", { type: "button", class: "btn sm", html: "🖼️ Gallery", onclick: function () { gal.click(); } });
+    var info = h("div", { class: "muted", style: "font-size:12px;word-break:break-all;flex:1;min-width:0" }, [currentPath ? "Current: " + currentPath : "No photo yet"]);
+    var thumb = h("img", { alt: "", style: "display:none;width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--border)" });
+    var rm = h("button", { type: "button", class: "icon-btn", title: "Remove photo", style: "display:none", html: "✕", onclick: function () { set(null); } });
+    var node = h("div", { class: "input", style: "display:flex;flex-direction:column;gap:8px;height:auto;padding:8px" }, [
+      h("div", { class: "row", style: "gap:8px;flex-wrap:wrap" }, [camB, galB]),
+      h("div", { class: "row", style: "gap:8px;align-items:center" }, [thumb, info, rm]),
+      cam, gal
+    ]);
+    function set(file) {
+      chosen = file;
+      if (thumb.src) { try { URL.revokeObjectURL(thumb.src); } catch (e) {} }
+      if (file) {
+        thumb.src = URL.createObjectURL(file); thumb.style.display = "";
+        info.textContent = (file.name || "photo.jpg") + " · " + Math.max(1, Math.round(file.size / 1024)) + " KB";
+        rm.style.display = "";
+      } else {
+        thumb.removeAttribute("src"); thumb.style.display = "none"; rm.style.display = "none";
+        info.textContent = currentPath ? "Current: " + currentPath : "No photo yet";
+      }
+    }
+    return { node: node, file: function () { return chosen; }, clear: function () { set(null); } };
+  }
+  /* Shrink big camera photos (often 3–8 MB) to ~1600px JPEG before upload — much faster on mobile data. */
+  function compressToBase64(file) {
+    if (!/^image\//.test(file.type || "") || /gif|svg/.test(file.type) || file.size < 350 * 1024) return toBase64(file);
+    return new Promise(function (res) {
+      var url = URL.createObjectURL(file), img = new Image();
+      img.onload = function () {
+        try {
+          var max = 1600, w = img.naturalWidth, hgt = img.naturalHeight, k = Math.min(1, max / Math.max(w, hgt));
+          var c = document.createElement("canvas"); c.width = Math.round(w * k); c.height = Math.round(hgt * k);
+          c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+          URL.revokeObjectURL(url);
+          var dataUrl = c.toDataURL("image/jpeg", 0.8);
+          res({ data: dataUrl.split(",")[1], mime: "image/jpeg" });
+        } catch (e) { URL.revokeObjectURL(url); toBase64(file).then(res); }
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); toBase64(file).then(res); };
+      img.src = url;
+    });
+  }
   function toBase64(file) { return new Promise(function (res) { var rd = new FileReader(); rd.onload = function () { var s = rd.result.split(","); res({ data: s[1], mime: (s[0].match(/:(.*?);/) || [])[1] || file.type }); }; rd.readAsDataURL(file); }); }
   function downloadCsv(rows) {
     var cols = ["id", "timestamp", "expenseDate", "type", "recvBy", "category", "customer", "employee", "method", "amount", "approvedBy", "purpose", "status", "enteredBy", "recordStatus"];
