@@ -1,0 +1,96 @@
+name: Unzip, Deploy Site & Build APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+env:
+  # Apps Script Web App (/exec) URL - the live Google Sheet backend
+  API_URL: "https://script.google.com/macros/s/AKfycbwC7nqPDE48Yl6XNMLVG2oW2XzMxQffZqy1IZ46xtUDIygxeG6WPVJVOj4PoXY2cSt9kA/exec"
+
+jobs:
+  unzip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract oakcraft-expense.zip into the repo (one time)
+        run: |
+          if [ -f oakcraft-expense.zip ]; then
+            mkdir -p /tmp/x && unzip -q -o oakcraft-expense.zip -d /tmp/x
+            rsync -a --exclude '.github' /tmp/x/oakcraft-expense/ ./
+            git rm -q oakcraft-expense.zip
+          fi
+          # Point the web app at the live backend and drop the bundled data snapshot
+          if [ -n "$API_URL" ] && [ -f web/js/config.js ]; then
+            sed -i -E "s#API_URL: \"[^\"]*\"#API_URL: \"$API_URL\"#" web/js/config.js
+            printf '/* Live mode: data is read from the Google Sheet via the API. */\nwindow.DEMO_DATA = null;\n' > web/js/demo-data.js
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -q -m "Unzip project and configure live backend"; git push; }
+
+  site:
+    needs: unzip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy-site:
+    needs: site
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  apk:
+    needs: unzip
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Build debug APK with Capacitor
+        working-directory: android
+        run: |
+          npm install
+          npx cap add android
+          npx cap sync android
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/Oakcraft-Expense.apk"
+      - name: Publish APK as a GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          name: Oakcraft Expense v1.0.${{ github.run_number }}
+          body: Android app (debug-signed APK). Install on the phone after allowing "Install unknown apps".
+          files: Oakcraft-Expense.apk
+          make_latest: true
