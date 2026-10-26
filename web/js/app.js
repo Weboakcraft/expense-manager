@@ -532,13 +532,53 @@
     if (r.recordStatus === "Deleted") rows.push(["Deleted By", r.deletedBy || "—"], ["Delete Reason", r.deleteReason || "—"]);
     var body = h("div", {});
     rows.forEach(function (p) { body.appendChild(h("div", { class: "row", style: "padding:7px 0;border-bottom:1px solid var(--border);gap:16px" }, [h("div", { class: "muted", style: "width:150px;flex:none;font-size:13px" }, [p[0]]), h("div", { style: "font-weight:550", class: p[0] === "Amount" ? "amt" : "" }, [String(p[1])])])); });
-    [["Bill Amount proof", r.billProof], ["Payment Amount proof", r.refProof]].forEach(function (pp) {
-      if (pp[1]) body.appendChild(h("div", { style: "margin-top:12px" }, [h("div", { class: "muted", style: "font-size:13px;margin-bottom:4px" }, [pp[0]]), h("div", { class: "mono", style: "font-size:12px;word-break:break-all;color:var(--primary)" }, [pp[1]])]));
-    });
+    var proofs = [["Bill Amount proof", r.billProof], ["Payment Amount proof", r.refProof]].filter(function (pp) { return pp[1]; });
+    if (proofs.length) {
+      var pg = h("div", { class: "proof-grid" });
+      proofs.forEach(function (pp) { pg.appendChild(proofView(pp[0], pp[1])); });
+      body.appendChild(pg);
+    }
     var foot = [];
     if (can("edit") && r.recordStatus !== "Deleted") foot.push(h("button", { class: "btn primary", html: icon("edit") + " Edit", onclick: function () { mo.close(); openTxForm(r); } }));
     foot.push(h("button", { class: "btn ghost", onclick: function () { mo.close(); } }, ["Close"]));
     var mo = modal({ title: "Transaction " + r.id, body: body, footer: foot });
+  }
+
+  /* ---- proof photos: load the real image (via the API) instead of showing the file path ---- */
+  var PROOF_CACHE = {};
+  function loadProof(path) {
+    if (/^https?:\/\//i.test(path)) return Promise.resolve({ ok: true, src: path });
+    if (PROOF_CACHE[path]) return Promise.resolve(PROOF_CACHE[path]);
+    return API.call("getProof", { path: path }).then(function (res) {
+      if (res && res.ok && res.data) { var out = { ok: true, src: "data:" + (res.mime || "image/jpeg") + ";base64," + res.data, mime: res.mime, name: res.name, fileId: res.fileId }; PROOF_CACHE[path] = out; return out; }
+      return res || { ok: false, error: "Could not load photo" };
+    });
+  }
+  function proofView(label, path) {
+    var box = h("div", { class: "proof-box" }, [h("div", { class: "proof-ph" }, [h("div", { class: "spinner", style: "width:22px;height:22px;border-width:2px" })])]);
+    var wrap = h("div", { class: "proof-card" }, [h("div", { class: "muted", style: "font-size:13px;margin-bottom:6px;font-weight:600" }, [label]), box]);
+    loadProof(path).then(function (p) {
+      box.innerHTML = "";
+      if (!p.ok) { box.appendChild(h("div", { class: "proof-ph muted", style: "font-size:12px;text-align:center;padding:12px" }, [p.error || "Photo not available", h("div", { class: "mono", style: "font-size:11px;margin-top:6px;word-break:break-all" }, [path])])); return; }
+      if (p.mime && !/^image\//.test(p.mime)) { box.appendChild(h("a", { class: "btn sm", href: p.src, download: p.name || "proof" }, ["Download " + (p.name || "file")])); return; }
+      var img = h("img", { src: p.src, alt: label, class: "proof-img", title: "Tap to view full size" });
+      img.addEventListener("click", function () { openPhoto(p.src, label, p.name); });
+      box.appendChild(img);
+    });
+    return wrap;
+  }
+  function openPhoto(src, title, name) {
+    var bg = h("div", { class: "photo-viewer", onclick: function (e) { if (e.target === bg || e.target === img) close(); } });
+    var img = h("img", { src: src, alt: title });
+    var bar = h("div", { class: "pv-bar" }, [
+      h("span", { class: "grow" }, [title]),
+      h("a", { class: "btn sm", href: src, download: name || "proof.jpg", onclick: function (e) { e.stopPropagation(); } }, ["Download"]),
+      h("button", { class: "btn sm", onclick: function (e) { e.stopPropagation(); close(); } }, ["Close"])
+    ]);
+    bg.appendChild(bar); bg.appendChild(img); document.body.appendChild(bg);
+    function key(e) { if (e.key === "Escape") close(); }
+    function close() { bg.remove(); document.removeEventListener("keydown", key); }
+    document.addEventListener("keydown", key);
   }
 
   function restoreTx(r) { confirmBox("Restore transaction", "Restore " + r.id + " back to active?", function () { API.call("restoreTransaction", { id: r.id }).then(function (res) { if (res.ok) { toast("Restored " + r.id, "ok"); go("transactions"); } else toast(res.error, "err"); }); }); }

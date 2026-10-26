@@ -192,6 +192,7 @@
         case "saveEmployee": case "saveCategory": case "saveApprover": case "saveReceiver": case "saveUser": case "deleteUser":
           return { ok: true, id: "DEMO", warnings: ["Saved in preview memory only — deploy the backend to persist to the Sheet"] };
         case "uploadProof": return { ok: true, path: "Expense_Sheet_Images/demo-proof.jpg", url: "#", fileId: "demo" };
+        case "getProof": return { ok: false, error: "Photos are shown once the backend is connected" };
         default: return { ok: false, error: "Unknown action: " + action };
       }
     }
@@ -239,7 +240,7 @@
     call: function (action, payload) {
       return rawCall(action, payload).then(function (r) {
         if (READS[action]) { if (r && r.ok && cacheable(action, payload)) { mem[ckey(action, payload)] = { t: Date.now(), r: r }; persist(); } }
-        else if (action !== "health" && action !== "me" && action !== "uploadProof") clearCache();
+        else if (action !== "health" && action !== "me" && action !== "uploadProof" && action !== "getProof") clearCache();
         return r;
       });
     },
