@@ -81,6 +81,7 @@ function handle_(action, data, token, ip) {
 
       case 'listAudit':     return json_(listAudit_(principal, data.limit));
       case 'uploadProof':   return json_(uploadProof_(principal, data.base64, data.mimeType, data.filename));
+      case 'getProof':      return json_(getProof_(principal, data.path));
 
       default:
         return json_({ ok: false, error: 'Unknown action: ' + action });

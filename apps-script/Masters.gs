@@ -234,6 +234,36 @@ function uploadProof_(principal, base64Data, mimeType, filename) {
   return { ok: true, path: rel, url: file.getUrl(), fileId: file.getId() };
 }
 
+/**
+ * Return a proof image so the app can show it (keeps files private: the
+ * bytes go through the logged-in API, no public sharing needed).
+ * `path` is what the sheet stores, e.g. 'Expense_Sheet_Images/abc.jpg'.
+ */
+function getProof_(principal, path) {
+  requirePerm_(principal, 'dashboard');
+  path = String(path || '').trim();
+  if (!path) return err_('No proof path');
+  var name = path.split('/').pop();
+  var ckey = 'proof_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, name)).slice(0, 22);
+  var hit = cacheGetJson_(ckey);
+  if (hit) return hit;
+  var file = null;
+  var folders = DriveApp.getFoldersByName(path.indexOf('/') > 0 ? path.split('/')[0] : UPLOAD_FOLDER_NAME);
+  while (!file && folders.hasNext()) {
+    var it = folders.next().getFilesByName(name);
+    if (it.hasNext()) file = it.next();
+  }
+  if (!file) { var any = DriveApp.getFilesByName(name); if (any.hasNext()) file = any.next(); }
+  if (!file) return err_('Photo not found in Drive: ' + name);
+  var size = file.getSize();
+  if (size > 12 * 1024 * 1024) return err_('Photo is too large to preview (' + Math.round(size / 1048576) + ' MB) — open it in Google Drive');
+  var blob = file.getBlob();
+  var out = { ok: true, name: name, fileId: file.getId(), mime: blob.getContentType() || 'image/jpeg',
+    size: size, data: Utilities.base64Encode(blob.getBytes()) };
+  if (size < 3 * 1024 * 1024) cachePutJson_(ckey, out, 21600);
+  return out;
+}
+
 function getOrCreateFolder_(name) {
   var it = DriveApp.getFoldersByName(name);
   if (it.hasNext()) return it.next();
